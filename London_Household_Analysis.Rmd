@@ -1,0 +1,231 @@
+---
+title: "London_Household_Analysis"
+author: "Danuphat"
+date: "2024-10-15"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, warning=TRUE, echo=TRUE, message=FALSE}
+
+library(Rmisc) 
+library(emmeans)
+library(tidyverse)
+library(gridExtra)
+options(width = 100)
+```
+
+
+---
+
+This data analysis case is part of my assignment for the Business Analytics program at Warwick Business School. It has been modified to serve as a demonstration of my analytics portfolio. Accordingly, the analysis does not disclose any confidential insights or sensitive information related to private entities.
+
+---
+
+# Section 1 Techinical Report
+
+This report is to provide analyses on data of children living in low income household in London, with specific analyses as requested.
+
+1. Provide a table that shows each borough with the average, the standard deviation, the lowest number and the highest number of the children living in low income household.
+
+2. Exclude specific unusual boroughs from the previous table.
+
+3. Provided a visualisation of distribution of children in low income household in ward for each year. Furthermore, a visual should representation of the mean value and standard deviation for each year.
+
+4. Perform a two sample t-test to see a significant difference between average number of children living in low income household in 2014 and 2021.
+
+---
+
+## Data Dictionary
+
+The data is providing information of children living in low income household in each ward and borough in London. London is divided into boroughs and sub-divided into wards. The data is collected for each ward between 2014 to 2021. The variables are described in the table below
+
+Variable | Description
+------------- | -------------
+Ward code| Ward's unique identifier
+Wards (2018)| Ward name
+Borough| Borough name
+Year| Year of data collected, from 2014 to 2021
+Children| Number of children living in low income household (persons)
+
+---
+
+## Read data  
+
+```{r}
+# Import csv file into dataframe
+dt <- read.csv('children_low_income_data.csv', stringsAsFactors = TRUE)
+# Convert year as categorical data into factor format
+dt <- dt %>% 
+  mutate(year = factor(year, c(2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021)))
+```
+
+
+## Data integrity checking and cleaning
+
+```{r}
+str(dt) # Checking type of data stored in data frame
+summary(dt) # Checking overall statistical information and missing value (NA)
+
+# Found missing values (NA) in children variable which have to be removed before perform statistic calculation, the other variables seem to be accurate.
+```
+
+```{r}
+# Remove missing value from data
+rm.na.dt=na.omit(dt)
+```
+
+```{r, warning=FALSE, fig.height=10, fig.width=10}
+# Visualise data to check overall outlier and skewness of the data
+color_1 <- c("#8c510a", "#bf812d", "#dfc27d", "#f6e8c3", "#c7eae5", "#80cdc1", "#35978f", "#01665e")
+
+grid.arrange(
+  ggplot(data=rm.na.dt)+ # create box plot to spot outstanding outliers of each year
+    geom_boxplot(aes(y=children, x=year, fill=year))+
+    geom_hline(yintercept = 1700, col="blue", alpha=0.3)+
+    labs(x="Year", y="Number of children per ward", title="Box and whisker plot of no. of children by year")+
+    scale_fill_manual(values = color_1)+
+    theme(legend.position="none") ,
+
+  ggplot(data=rm.na.dt)+ # create histogram to identify skewness and distribution of the data
+    geom_histogram(aes(x=children, y=..density.. ,fill = year),position = "dodge", binwidth = 100)+
+    labs(x="Number of children per ward", y="Density", title="Histrogram of no. children with density curve and normal distribution curve")+
+    scale_fill_manual(values = color_1, name="Year")+
+    geom_vline(xintercept = mean(rm.na.dt$children))+
+    geom_density(aes(x=children, y=..density..), alpha=0.5)+
+    stat_function(fun=function(x) {dnorm(x, mean=mean(rm.na.dt$children), sd=sd(rm.na.dt$children))}, col="red", alpha=0.5)+
+    theme(legend.position="bottom"),
+  
+  nrow=2
+)
+
+# The charts show some outliers at above 1,700 children per ward, these outliers mostly come from 2017, 2018, 2019 and 2020, which in these years the number of children tend to increase in every borough, however, there was no obvious evidence that the outliers occur from error in collection process. In this case, removing these outliers will affect the statistic testing results as it will lead to increase p-value and less probability to reject Null hypothesis. Thus, these outliers will not be removed from the sampling in this case.
+
+# The distribution of data is moderately positive skewed but due to the requests, the t-test will be performed in this analysis.
+
+```
+
+## 1 : Children in low income homes by borough
+
+```{r}
+# Group borough and calculate statistics information from removed missing value data
+borough.table <- rm.na.dt %>% 
+  group_by(Borough) %>% 
+  summarise(Mean=mean(children), Standard_deviation=sd(children), Lowest=min(children), Highest=max(children))
+
+print.data.frame(borough.table)
+```
+
+## 2 : Exclude unusual boroughs
+
+```{r}
+# Exclude unusual borough as requested by instruction
+unusual.borough <- c("City of London", "Kensington and Chelsea", "Kingston upon Thames", "Richmond upon Thames", "Westminster") # Assign unusual borough name into vector
+new.borough.dt <- borough.table %>% 
+  filter(!Borough %in% unusual.borough) # Filter unusual borough out
+
+print.data.frame(new.borough.dt)
+```
+
+## 3 : Visualise data for different years
+
+```{r, fig.height=6, fig.width=10, fig.cap="Figure 1. The distribution of number of children living in low income household from 2014 through 2021"}
+clean.dt <- rm.na.dt %>% 
+  filter(!Borough %in% unusual.borough)
+
+q = c(0.25, 0.5, 0.75)
+clean.dt.summary <- clean.dt %>% # Calculate statistics information from the data
+  group_by(year) %>% 
+  summarize(mean = mean(children),Standard_deviation=sd(children),
+            quant25 = quantile(children, probs = q[1]), 
+            quant50 = quantile(children, probs = q[2]),
+            quant75 = quantile(children, probs = q[3]), 
+            n.total=sum(children))
+
+plot.fig.1 <- ggplot(data=clean.dt, show.legend = FALSE, aes(y=children, x=year))+ # Create chart to show distribution change between 8 years
+  geom_jitter(position = position_jitter(0.4), color="#80cdc1" )+
+  geom_violin(color="black",  alpha=0.005)+
+  geom_boxplot(width=0.3)+
+  geom_line(data=clean.dt.summary, mapping = aes(x = year, y = mean, group=1),color="red")+
+  stat_summary(show.legend = TRUE,fun = "mean", geom = "point", color = "red", aes(shape="mean"))+
+  scale_shape_manual(values=c(16))+
+  theme(legend.title= element_blank())+
+  labs(y="Number of children per ward", x="Year")
+
+plot.fig.1
+
+```
+
+## 4 : t-test comparing earliest and latest year
+
+```{r}
+dt.2014.2021 <- clean.dt %>%  
+  filter(year %in% c("2014", "2021"))
+dt.2014.2021 %>% 
+  group_by(year) %>% 
+  summarise(mean=mean(children), sd=sd(children), n=n())
+
+# Null Hypothesis : mean of no. of children in lower income household from 2014 are not different from 2021.
+# Alternative Hypothesis : mean of no. of children in lower income household from 2014 and 2021 are different.
+
+t.test(children~year, data = dt.2014.2021)
+```
+
+```{r}
+# linear model for compute confident interval for two sample
+m.children.2014.2021 <- lm(children~year, data=dt.2014.2021)
+(m.children.2014.2021.emm <- emmeans::emmeans(m.children.2014.2021, ~year))
+
+(m.children.2014.2021.contrast <- confint(pairs(m.children.2014.2021.emm)))
+```
+
+```{r, fig.height=5, fig.width=10, , fig.cap="Figure 2. The confidence interval for the estimation of no. of children living in low income in 2014 and 2021 and the confidence interval for the difference between 2014 and 2021"}
+
+grid.arrange(
+  ggplot(summary(m.children.2014.2021.emm), aes(x=year, y=emmean, ymin=lower.CL, ymax=upper.CL)) + 
+  geom_point() + geom_linerange() + 
+  labs(y="Number of children in lower income household", x="Year", subtitle="Error bars are 95% CIs", title="No. of children from lower income") + 
+  ylim(500,650),
+
+  ggplot(m.children.2014.2021.contrast, aes(x=contrast, y=estimate, ymin=lower.CL, ymax=upper.CL)) + 
+  geom_point() + geom_linerange() + 
+  labs(y="Difference in number of children", x="Contrast", subtitle="Error bars are 95% CIs", title="Difference in no. of children")+ ylim(-150,0) +
+  geom_hline(yintercept=0, lty=2),
+ 
+  ncol=2)
+```
+
+
+---
+
+# Section 2 : Executive Summary
+
+This report presents the analysis of data on children living in low income households in London as requested. The 5,120 observations of data used in this analysis is provided by client. The analysis removes missing value and unusual data requested by client, but the inaccurate outliers does not evidently exist in this data. Thus, the data is used for this analysing is 4,480 observations from 28 boroughs, 560 wards, from 8 years.
+
+The analysis begins with summary of mean and distribution of children living in low income household between 2014 and 2021. 
+
+In 2014, 50 percent of observations of children living in low income house per ward cluster between 289 to 702 persons (quartile 1 to quartile 3) with 528 persons in average, then steadily increase between 2014 and 2019. 
+The highest number of children living in low income house are in 2019 which 50 percent of children per wards cluster between 386 to 974 persons and the average is 727 persons. Moreover, the distribution of number of children per wards are also at the peak in 2019 where the highest of children per ward is 2094 persons.
+After 2019, the number of children has gradually decrease toward 2020 and 2021, the 50 percent of observations in 2021 are between 326 to 803 persons with 604 persons in average.
+
+The distribution of children living in low income house is shown in figure 1.
+
+The next part is a t-test analysis comparing the first (2014) and the last (2021) year of information. The test shows that the average number of children from low income household in 2014 is 528 persons which is significant lower compared to 2021 which the average is 604 persons. Welch $t$(1095)=4.02, $p$<0.0001, with a difference of 76 persons.
+
+The mean number of children from low income household in 2014 is 528 persons 95% CI [502-554]. While the mean number of children from low income household in 2021 is 604 persons 95% CI[578-630]. The difference in mean is 76 persons with 95% CI [39-112] smaller at 2014 compared to 2021.
+
+
+
+```{r, echo=FALSE, fig.height=6, fig.width=10, fig.cap="Figure 1. The distribution of number of children living in low income household from 2014 through 2021"}
+plot.fig.1
+```
+
+```{r fig.cap="Table 1. The standard deviation, Mean, Max and Min of number of children living in low income household from 2014 through 2021"}
+print.data.frame(new.borough.dt)
+```
+
+---
